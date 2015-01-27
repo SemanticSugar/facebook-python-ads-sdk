@@ -576,9 +576,13 @@ class AbstractCrudObject(AbstractObject):
                 if failure is not None:
                     failure(response)
 
+            relative_url = self.get_node_path()
+            if params.get('fields'):
+                relative_url = '{}?fields={}'.format('/'.join(relative_url), params['fields']),
+
             batch_call = batch.add(
                 FacebookAdsApi.HTTP_METHOD_GET,
-                self.get_node_path(),
+                relative_url,
                 params=params,
                 success=callback_success,
                 failure=callback_failure,
