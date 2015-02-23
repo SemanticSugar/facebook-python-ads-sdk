@@ -237,19 +237,7 @@ class FacebookAdsApi(object):
 
         self._num_requests_attempted += 1
 
-        batch = params.get('batch')
-        relative_url = None
-
-        if batch and isinstance(batch, list):
-            relative_url = batch[0].get('relative_url')
-
-        if relative_url:
-            path = "/".join((
-                self._session.GRAPH,
-                self.API_VERSION,
-                relative_url,
-            ))
-        elif not isinstance(path, six.string_types):
+        if not isinstance(path, six.string_types):
             # Path is not a full path
             path = "/".join((
                 self._session.GRAPH,
