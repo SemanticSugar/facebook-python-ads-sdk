@@ -73,7 +73,7 @@ class FacebookRequestError(FacebookError):
             if 'error_data' in self._error:
                 try:
                     self._api_blame_field_specs = self._error['error_data']['blame_field_specs']
-                except TypeError, KeyError:
+                except (TypeError, KeyError):
                     # The response from Facebook is occasionally malformed and
                     # raises `TypeError: list indices must be integers, not str`
                     # or 'KeyError: 'blame_field_specs'
