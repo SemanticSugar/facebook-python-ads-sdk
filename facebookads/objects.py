@@ -459,6 +459,7 @@ class AbstractCrudObject(AbstractObject):
         files=None,
         params=None,
         success=None,
+        relative_path=None
     ):
         """Creates the object by calling the API.
 
@@ -487,6 +488,9 @@ class AbstractCrudObject(AbstractObject):
         params = {} if not params else params.copy()
         params.update(self.export_data())
 
+        # some private endpoints require a custom relative_path
+        relative_path = relative_path or (self.get_parent_id_assured(), self.get_endpoint())
+
         if batch is not None:
             def callback_success(response):
                 self._set_data(response.json())
@@ -501,7 +505,7 @@ class AbstractCrudObject(AbstractObject):
 
             batch_call = batch.add(
                 'POST',
-                (self.get_parent_id_assured(), self.get_endpoint()),
+                relative_path,
                 params=params,
                 files=files,
                 success=callback_success,
@@ -511,7 +515,7 @@ class AbstractCrudObject(AbstractObject):
         else:
             response = self.get_api_assured().call(
                 'POST',
-                (self.get_parent_id_assured(), self.get_endpoint()),
+                relative_path,
                 params=params,
                 files=files,
             )
@@ -527,6 +531,7 @@ class AbstractCrudObject(AbstractObject):
         fields=None,
         params=None,
         success=None,
+        relative_path=None,
     ):
         """Reads the object by calling the API.
 
@@ -591,6 +596,7 @@ class AbstractCrudObject(AbstractObject):
         files=None,
         params=None,
         success=None,
+        relative_path=None,
     ):
         """Updates the object by calling the API with only the changes recorded.
 
@@ -652,6 +658,7 @@ class AbstractCrudObject(AbstractObject):
         failure=None,
         params=None,
         success=None,
+        relative_path=None,
     ):
         """Deletes the object by calling the API with the DELETE http method.
 
@@ -793,7 +800,7 @@ class Activity(AbstractObject):
         return 'activities'
 
 
-class AdAccount(CannotCreate, CannotDelete, AbstractCrudObject):
+class AdAccount(CannotDelete, AbstractCrudObject):
 
     class Field(object):
         account_groups = 'account_groups'
@@ -1374,6 +1381,7 @@ class AdImage(CannotUpdate, AbstractCrudObject):
         files=None,
         params=None,
         success=None,
+        relative_path=None,
     ):
         """Uploads filename and creates the AdImage object from it.
 
@@ -1408,6 +1416,7 @@ class AdImage(CannotUpdate, AbstractCrudObject):
         fields=None,
         params=None,
         success=None,
+        relative_path=None,
     ):
         if self[AdImage.Field.id]:
             _, image_hash = self[AdImage.Field.id].split(':')
