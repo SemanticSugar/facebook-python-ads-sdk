@@ -52,7 +52,8 @@ class CanArchive(object):
         self,
         batch=None,
         failure=None,
-        success=None
+        success=None,
+        relative_path=None,
     ):
         return self.remote_update(
             params={
