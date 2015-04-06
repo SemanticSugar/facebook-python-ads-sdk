@@ -1247,6 +1247,14 @@ class AdGroup(HasStatus, HasObjective, CanArchive, AbstractCrudObject):
         return self.edge_object(ConversionStats, fields, params)
 
 
+class CustomAudiencePixel(AbstractCrudObject):
+    class Field(object):
+        id = 'id'
+
+    @classmethod
+    def get_endpoint(cls):
+        return 'act_{}/adpixels'.format(self.get_parent_id_assured())
+
 class AdConversionPixel(AbstractCrudObject):
 
     class Field(object):
