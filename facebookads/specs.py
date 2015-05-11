@@ -40,6 +40,7 @@ class ObjectStorySpec(ValidatesFields, AbstractObject):
 
 class AttachmentData(ValidatesFields, AbstractObject):
     class Field(object):
+        call_to_action = 'call_to_action'
         description = 'description'
         image_hash = 'image_hash'
         link = 'link'
@@ -57,6 +58,7 @@ class LinkData(ValidatesFields, AbstractObject):
         image_crops = 'image_crops'
         link = 'link'
         message = 'message'
+        multi_share_optimized = 'multi_share_optimized'
         name = 'name'
         picture = 'picture'
 

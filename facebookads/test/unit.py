@@ -27,8 +27,8 @@ How to run:
 
 import unittest
 import json
+import inspect
 from sys import version_info
-
 from .. import api
 from .. import objects
 from .. import specs
@@ -114,6 +114,20 @@ class EdgeIteratorTestCase(unittest.TestCase):
 
 
 class AbstractCrudObjectTestCase(unittest.TestCase):
+    def test_all_aco_has_id_field(self):
+        # Some objects do not have FBIDs or don't need checking (ACO)
+        for name, obj in inspect.getmembers(objects):
+            if (
+                inspect.isclass(obj) and
+                issubclass(obj, objects.AbstractCrudObject) and
+                obj != objects.AbstractCrudObject
+            ):
+                try:
+                    id_field = obj.Field.id
+                    assert id_field != ''
+                except Exception as e:
+                    self.fail("Could not instantiate " + name + "\n  " + str(e))
+
     def test_inherits_account_id(self):
         parent_id = 'act_19tg0j239g023jg9230j932'
         api.FacebookAdsApi.set_default_account_id(parent_id)
@@ -264,6 +278,24 @@ class SessionTestCase(unittest.TestCase):
             self.gen_appsecret_proof(access_token, app_secret)
         )
 
+
+class ProductCatalogTestCase(unittest.TestCase):
+    def test_b64_encode_is_correct(self):
+        product_id = 'ID_1'
+        b64_id_as_str = 'SURfMQ=='
+
+        catalog = objects.ProductCatalog()
+        self.assertEqual(b64_id_as_str, catalog.b64_encoded_id(product_id))
+
+
+class SessionWithoutAppSecretTestCase(unittest.TestCase):
+    def test_appsecret_proof_absence(self):
+        try:
+            session.FacebookSession(
+                access_token='thisisfakeaccesstoken'
+            )
+        except Exception as e:
+            self.fail("Could not instantiate " + "\n  " + str(e))
 
 if __name__ == '__main__':
     unittest.main()
