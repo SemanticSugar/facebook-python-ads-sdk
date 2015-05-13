@@ -2132,6 +2132,21 @@ class Business(CannotCreate, CannotDelete, AbstractCrudObject):
         params['summary'] = params.get('summary')
         return self.iterate_edge(Insights, fields, params)
 
+    def get_client_pages(self, fields=None, params=None):
+        return self.iterate_edge(ClientPage, fields, params)
+
+class ClientPage(AbstractCrudObject, CannotCreate, CannotDelete):
+
+    class Field(object):
+        id = 'id'
+        category = 'category'
+        category_list = 'category_list'
+        name = 'name'
+
+    @classmethod
+    def get_endpoint(cls):
+        return 'client_pages'
+
 
 class ProductCatalog(AbstractCrudObject):
 
