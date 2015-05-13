@@ -2147,7 +2147,7 @@ class Business(CannotCreate, CannotDelete, AbstractCrudObject):
             params=params
         )
 
-class ClientPage(AbstractCrudObject, CannotCreate, CannotDelete):
+class ClientPage(AbstractCrudObject, CannotCreate, CannotDelete, CannotUpdate):
 
     class Field(object):
         id = 'id'
