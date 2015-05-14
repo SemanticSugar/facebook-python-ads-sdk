@@ -2132,6 +2132,44 @@ class Business(CannotCreate, CannotDelete, AbstractCrudObject):
         params['summary'] = params.get('summary')
         return self.iterate_edge(Insights, fields, params)
 
+    def get_client_pages(self, fields=None, params=None):
+        return self.iterate_edge(ClientPage, fields, params)
+
+    def send_page_invite(self, page_id, access_type, permitted_roles):
+        params = {
+            'page_id': page_id,
+            'access_type': access_type,
+            'permitted_roles': permitted_roles,
+        }
+        return self.get_api_assured().call(
+            'POST',
+            (self.get_id_assured(), 'pages'),
+            params=params
+        )
+
+class ClientPage(AbstractCrudObject, CannotCreate, CannotDelete, CannotUpdate):
+
+    class Field(object):
+        id = 'id'
+        category = 'category'
+        category_list = 'category_list'
+        name = 'name'
+
+    @classmethod
+    def get_endpoint(cls):
+        return 'client_pages'
+
+    def assign_permissions(self, business, user, role):
+        params = {
+            'business': business,
+            'user': user,
+            'role': role,
+        }
+        return self.get_api_assured().call(
+            'POST',
+            (self.get_id_assured(), 'userpermissions'),
+            params=params
+        )
 
 class ProductCatalog(AbstractCrudObject):
 
