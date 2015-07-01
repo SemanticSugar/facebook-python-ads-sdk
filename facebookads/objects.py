@@ -2159,6 +2159,9 @@ class ClientPage(AbstractCrudObject, CannotCreate, CannotDelete, CannotUpdate):
     def get_endpoint(cls):
         return 'client_pages'
 
+    def get_agencies(self):
+        return self.iterate_edge(Agency)
+
     def assign_permissions(self, business, user, role):
         params = {
             'business': business,
@@ -2170,6 +2173,20 @@ class ClientPage(AbstractCrudObject, CannotCreate, CannotDelete, CannotUpdate):
             (self.get_id_assured(), 'userpermissions'),
             params=params
         )
+
+class Agency(AbstractCrudObject, CannotCreate, CannotDelete, CannotUpdate):
+
+    class Field(object):
+        id = 'id'
+        name = 'name'
+        permitted_roles = 'permitted_roles'
+        access_requested_time = 'access_requested_time'
+        access_status = 'access_status'
+        access_updated_time = 'access_updated_time'
+
+    @classmethod
+    def get_endpoint(cls):
+        return 'agencies'
 
 class ProductCatalog(AbstractCrudObject):
 
