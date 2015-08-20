@@ -136,7 +136,8 @@ class FacebookAdsApi(object):
 
     SDK_VERSION = version.get_version()
 
-    API_VERSION = 'v' + str(re.sub('^(\d+\.\d+)\.\d+$', '\g<1>', SDK_VERSION))
+    #API_VERSION = 'v' + str(re.sub('^(\d+\.\d+)\.\d+$', '\g<1>', SDK_VERSION))
+    API_VERSION = 'v2.3'
 
     HTTP_METHOD_GET = 'GET'
 
