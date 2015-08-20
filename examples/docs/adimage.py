@@ -18,27 +18,17 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
-from facebookads.objects import *
-from facebookads.api import *
-from facebookads.exceptions import *
+from facebookads import test_config as config
 
-config_file = open('./examples/docs/config.json')
-config = json.load(config_file)
-config_file.close()
-
-account_id = config['account_id']
-access_token = config['access_token']
-image_path = config['image_jpg']
-image_zip_path = config['image_zip']
-app_id = config['app_id']
-app_secret = config['app_secret']
-
-FacebookAdsApi.init(app_id, app_secret, access_token)
+ad_account_id = config.account_id
+image_path = config.image_path
+image_zip_path = config.images_zip_path
 
 # _DOC open [ADIMAGE_CREATE]
-# from facebookads.objects import AdImage
+# _DOC vars [ad_account_id:s, image_path:s]
+from facebookads.objects import AdImage
 
-image = AdImage(parent_id=account_id)
+image = AdImage(parent_id=ad_account_id)
 image[AdImage.Field.filename] = image_path
 image.remote_create()
 
@@ -50,18 +40,20 @@ image_id = image[AdImage.Field.id]
 image_hash = image[AdImage.Field.hash]
 
 # _DOC open [ADIMAGE_DELETE]
-# from facebookads.objects import AdImage
+# _DOC vars [image_id, ad_account_id:s, image_hash:s]
+from facebookads.objects import AdImage
 
-image = AdImage(image_id, account_id)
+image = AdImage(image_id, ad_account_id)
 image.remote_delete(params={AdImage.Field.hash: image_hash})
 # _DOC close [ADIMAGE_DELETE]
 
 # _DOC open [ADIMAGE_CREATE_ZIP]
-# from facebookads.objects import AdImage
+# _DOC vars [image_zip_path:s, ad_account_id:s]
+from facebookads.objects import AdImage
 
 images = AdImage.remote_create_from_zip(
     filename=image_zip_path,
-    parent_id=account_id
+    parent_id=ad_account_id
 )
 
 # Output image hashes.
@@ -73,9 +65,10 @@ image_1_hash = images[0][AdImage.Field.hash]
 image_2_hash = images[1][AdImage.Field.hash]
 
 # _DOC open [ADIMAGE_READ_MULTI_WITH_HASH]
-# from facebookads.objects import AdAccount
+# _DOC vars [ad_account_id:s, image_1_hash, image_2_hash]
+from facebookads.objects import AdAccount
 
-account = AdAccount(account_id)
+account = AdAccount(ad_account_id)
 params = {
     'hashes': [
         image_1_hash,
@@ -86,5 +79,5 @@ images = account.get_ad_images(params=params)
 # _DOC close [ADIMAGE_READ_MULTI_WITH_HASH]
 
 for _image in images:
-    image = AdImage(_image[AdImage.Field.id], account_id)
-    image.remote_delete(params={AdImage.Field.hash: image_hash})
+    image = AdImage(_image[AdImage.Field.id], ad_account_id)
+    image.remote_delete(params={AdImage.Field.hash: _image[AdImage.Field.hash]})
