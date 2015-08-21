@@ -23,7 +23,11 @@ objects module contains classes that represent and help traverse nodes on the
 Ads API.
 """
 
-from facebookads.exceptions import FacebookBadObjectError, FacebookError
+from facebookads.exceptions import (
+    FacebookBadObjectError,
+    FacebookError,
+    FacebookUnavailablePropertyException,
+)
 from facebookads.api import FacebookAdsApi
 from facebookads.session import FacebookSession
 from facebookads.mixins import (
@@ -35,6 +39,7 @@ from facebookads.mixins import (
     HasObjective,
     HasStatus,
     HasBidInfo,
+    HasAdLabels,
 )
 from facebookads.video_uploader import VideoUploader, VideoEncodingStatusChecker
 
@@ -62,6 +67,7 @@ class EdgeIterator(object):
         target_objects_class,
         fields=None,
         params=None,
+        include_summary=True,
     ):
         """
         Initializes an iterator over the objects to which there is an edge from
@@ -78,8 +84,8 @@ class EdgeIterator(object):
                 is the parameter name and its value is a string or an object
                 which can be JSON-encoded.
         """
-        self._params = dict(params or {})
-        target_objects_class._assign_fields_to_params(fields, self._params)
+        self.params = dict(params or {})
+        target_objects_class._assign_fields_to_params(fields, self.params)
         self._source_object = source_object
         self._target_objects_class = target_objects_class
         self._path = (
@@ -89,9 +95,7 @@ class EdgeIterator(object):
         self._queue = []
         self._finished_iteration = False
         self._total_count = None
-
-        if self._source_object.get_api():
-            self.load_next_page()
+        self._include_summary = include_summary
 
     def __repr__(self):
         return str(self._queue)
@@ -117,6 +121,11 @@ class EdgeIterator(object):
         return self._queue[index]
 
     def total(self):
+        if self._total_count is None:
+            raise FacebookUnavailablePropertyException(
+                "Couldn't retrieve the object total count for that type "
+                "of request."
+            )
         return self._total_count
 
     def load_next_page(self):
@@ -128,13 +137,14 @@ class EdgeIterator(object):
         if self._finished_iteration:
             return False
 
-        if 'summary' not in self._params:
-            self._params['summary'] = True
+        if self._include_summary:
+            if 'summary' not in self.params:
+                self.params['summary'] = True
 
         response = self._source_object.get_api_assured().call(
             'GET',
             self._path,
-            params=self._params,
+            params=self.params,
         ).json()
 
         if 'paging' in response and 'next' in response['paging']:
@@ -143,22 +153,32 @@ class EdgeIterator(object):
             # Indicate if this was the last page
             self._finished_iteration = True
 
-        if 'summary' in response and 'total_count' in response['summary']:
+        if (
+            self._include_summary and
+            'summary' in response and
+            'total_count' in response['summary']
+        ):
             self._total_count = response['summary']['total_count']
 
         self._queue = self.build_objects_from_response(response)
         return len(self._queue) > 0
 
     def build_objects_from_response(self, response):
-        if 'data' in response:
+        if 'data' in response and isinstance(response['data'], list):
             ret = []
-            for json_obj in response['data']:
+            if isinstance(response['data'], list):
+                for json_obj in response['data']:
+                    obj = self._target_objects_class()
+                    obj._set_data(json_obj)
+                    ret.append(obj)
+            else:
                 obj = self._target_objects_class()
-                obj._set_data(json_obj)
+                obj._set_data(response['data'])
                 ret.append(obj)
         else:
+            data = response['data'] if 'data' in response else response
             obj = self._target_objects_class()
-            obj._set_data(response)
+            obj._set_data(data)
             ret = [obj]
 
         return ret
@@ -297,6 +317,7 @@ class AbstractCrudObject(AbstractObject):
         self._parent_id = parent_id
         self._api = api
         self._data[self.Field.id] = fbid
+        self._include_summary = True
 
     def __setitem__(self, key, value):
         """Sets an item in this CRUD object while maintaining a changelog."""
@@ -400,7 +421,9 @@ class AbstractCrudObject(AbstractObject):
         api = self.get_api()
         if not api:
             raise FacebookBadObjectError(
-                "%s does not yet have an associated api object."
+                "%s does not yet have an associated api object.\n"
+                "Did you forget to instantiate an API session with: "
+                "FacebookAdsApi.init(app_id, app_secret, access_token)"
                 % self.__class__.__name__
             )
 
@@ -734,7 +757,8 @@ class AbstractCrudObject(AbstractObject):
     # To avoid breaking change. Will be deprecated
     save = remote_save
 
-    def iterate_edge(self, target_objects_class, fields=None, params=None):
+    def iterate_edge(self, target_objects_class, fields=None, params=None,
+                     fetch_first_page=True, include_summary=True):
         """
         Returns EdgeIterator with argument self as source_object and
         the rest as given __init__ arguments.
@@ -742,12 +766,71 @@ class AbstractCrudObject(AbstractObject):
         Note: list(iterate_edge(...)) can prefetch all the objects.
         """
         source_object = self
-        return EdgeIterator(
+        iterator = EdgeIterator(
             source_object,
             target_objects_class,
             fields=fields,
-            params=params
+            params=params,
+            include_summary=include_summary,
         )
+        if fetch_first_page:
+            iterator.load_next_page()
+        return iterator
+
+    def iterate_edge_async(self, target_objects_class, fields=None,
+                           params=None, async=False, include_summary=True):
+        """
+        Behaves as iterate_edge(...) if parameter async if False
+        (Default value)
+
+        If async is True:
+        Returns an AsyncJob which can be checked using remote_read()
+        to verify when the job is completed and the result ready to query
+        or download using get_result()
+
+        Example:
+        >>> job = object.iterate_edge_async(
+                TargetClass, fields, params, async=True)
+        >>> time.sleep(10)
+        >>> job.remote_read()
+        >>> if job:
+                result = job.read_result()
+                print result
+        """
+        synchronous = not async
+        synchronous_iterator = self.iterate_edge(
+            target_objects_class,
+            fields,
+            params,
+            fetch_first_page=synchronous,
+            include_summary=include_summary
+        )
+        if synchronous:
+            return synchronous_iterator
+
+        if not params:
+            params = {}
+        else:
+            params = dict(params)
+        self.__class__._assign_fields_to_params(fields, params)
+
+        # To force an async response from an edge, do a POST instead of GET.
+        # The response comes in the format of an AsyncJob which
+        # indicates the progress of the async request.
+        response = self.get_api_assured().call(
+            'POST',
+            (self.get_id_assured(), target_objects_class.get_endpoint()),
+            params=params,
+        ).json()
+
+        # AsyncJob stores the real iterator
+        # for when the result is ready to be queried
+        result = AsyncJob(target_objects_class)
+
+        if 'report_run_id' in response:
+            response['id'] = response['report_run_id']
+        result._set_data(response)
+        return result
 
     def edge_object(self, target_objects_class, fields=None, params=None):
         """
@@ -816,12 +899,13 @@ class Activity(AbstractObject):
         return 'activities'
 
 
-class AdAccount(CannotDelete, AbstractCrudObject):
+class AdAccount(CannotDelete, HasAdLabels, AbstractCrudObject):
 
     class Field(object):
         account_groups = 'account_groups'
         account_id = 'account_id'
         account_status = 'account_status'
+        adlabels = 'adlabels'
         age = 'age'
         agency_client_declaration = 'agency_client_declaration'
         amount_spent = 'amount_spent'
@@ -836,7 +920,6 @@ class AdAccount(CannotDelete, AbstractCrudObject):
         business_zip = 'business_zip'
         capabilities = 'capabilities'
         currency = 'currency'
-        daily_spend_limit = 'daily_spend_limit'
         end_advertiser = 'end_advertiser'
         funding_source = 'funding_source'
         funding_source_details = 'funding_source_details'
@@ -849,7 +932,7 @@ class AdAccount(CannotDelete, AbstractCrudObject):
         partner = 'partner'
         spend_cap = 'spend_cap'
         tax_id_status = 'tax_id_status'
-        timezone_id = 'timezone_id'
+        timezon_id = 'timezone_id'
         timezone_name = 'timezone_name'
         timezone_offset_hours_utc = 'timezone_offset_hours_utc'
         tos_accepted = 'tos_accepted'
@@ -970,10 +1053,14 @@ class AdAccount(CannotDelete, AbstractCrudObject):
         """Returns iterator over AdImage's associated with this account."""
         return self.iterate_edge(AdImage, fields, params)
 
-    def get_insights(self, fields=None, params=None):
-        params = params or {}
-        params['summary'] = params.get('summary')
-        return self.iterate_edge(Insights, fields, params)
+    def get_insights(self, fields=None, params=None, async=False):
+        return self.iterate_edge_async(
+            Insights,
+            fields,
+            params,
+            async,
+            include_summary=False
+        )
 
     def get_broad_category_targeting(self, fields=None, params=None):
         """
@@ -1010,9 +1097,9 @@ class AdAccount(CannotDelete, AbstractCrudObject):
         """
         return self.iterate_edge(ReachEstimate, fields, params)
 
-    def get_report_stats(self, fields=None, params=None):
+    def get_report_stats(self, fields=None, params=None, async=False):
         """Returns iterator over ReportStats's associated with this account."""
-        return self.iterate_edge(ReportStats, fields, params)
+        return self.iterate_edge_async(ReportStats, fields, params, async)
 
     def get_stats(self, fields=None, params=None):
         """Returns iterator over AdStats's associated with this account."""
@@ -1044,6 +1131,44 @@ class AdAccount(CannotDelete, AbstractCrudObject):
         """Returns iterator over AdPreview's associated with this account."""
         return self.iterate_edge(AdPreview, fields, params)
 
+    def get_ads_pixels(self, fields=None, params=None):
+        return self.edge_object(AdsPixel, fields, params)
+
+    def get_targeting_description(self, fields=None, params=None):
+        """
+        Returns TargetingDescription object associated with this account.
+        """
+        return self.edge_object(TargetingDescription, fields, params)
+
+    def get_ad_labels(self, fields=None, params=None):
+        """
+        Returns all the ad labels associated with the ad account
+        """
+        return self.iterate_edge(AdLabel, fields, params)
+
+    def get_ad_creatives_by_labels(self, fields=None, params=None):
+        """
+        Returns the ad creatives associated with the ad AdLabel
+        """
+        return self.iterate_edge(AdCreativesByLabels, fields, params)
+
+    def get_ad_groups_by_labels(self, fields=None, params=None):
+        """
+        Returns the ad Groups associated with the ad AdLabel
+        """
+        return self.iterate_edge(AdGroupsByLabels, fields, params)
+
+    def get_ad_campaigns_by_labels(self, fields=None, params=None):
+        """
+        Returns the ad sets associated with the ad AdLabel
+        """
+        return self.iterate_edge(AdCampaignsByLabels, fields, params)
+
+    def get_ad_campaign_groups_by_labels(self, fields=None, params=None):
+        """
+        Returns the ad campaigns associated with the ad AdLabel
+        """
+        return self.iterate_edge(AdCampaignGroupsByLabels, fields, params)
 
 class AdAccountGroup(AbstractCrudObject):
 
@@ -1125,11 +1250,12 @@ class AdAccountGroupUser(AbstractCrudObject):
         return AdUser(fbid=self[self.Field.uid])
 
 
-class AdCampaign(CanValidate, HasStatus, HasObjective, CanArchive,
+class AdCampaign(CanValidate, HasStatus, HasObjective, HasAdLabels, CanArchive,
                  AbstractCrudObject):
 
     class Field(object):
         account_id = 'account_id'
+        adlabels = 'adlabels'
         buying_type = 'buying_type'
         id = 'id'
         is_completed = 'is_completed'
@@ -1159,18 +1285,25 @@ class AdCampaign(CanValidate, HasStatus, HasObjective, CanArchive,
         """Returns iterator over AdStat's associated with this campaign."""
         return self.iterate_edge(AdStats, fields, params)
 
-    def get_insights(self, fields=None, params=None):
-        params = params or {}
-        params['summary'] = params.get('summary')
-        return self.iterate_edge(Insights, fields, params)
+    def get_insights(self, fields=None, params=None, async=False):
+        return self.iterate_edge_async(
+            Insights,
+            fields,
+            params,
+            async,
+            include_summary=False
+        )
 
 
-class AdSet(CanValidate, HasStatus, CanArchive, AbstractCrudObject):
+class AdSet(CanValidate, HasStatus, CanArchive, HasAdLabels,
+            AbstractCrudObject):
 
     class Field(HasBidInfo, object):
         account_id = 'account_id'
+        adlabels = 'adlabels'
+        bid_amount = 'bid_amount'
         bid_info = 'bid_info'
-        bid_type = 'bid_type'
+        billing_event = 'billing_event'
         budget_remaining = 'budget_remaining'
         campaign_group_id = 'campaign_group_id'
         campaign_schedule = 'campaign_schedule'
@@ -1183,19 +1316,44 @@ class AdSet(CanValidate, HasStatus, CanArchive, AbstractCrudObject):
         lifetime_budget = 'lifetime_budget'
         lifetime_imps = 'lifetime_imps'
         name = 'name'
+        optimization_goal = 'optimization_goal'
+        product_ad_behavior = 'product_ad_behavior'
         pacing_type = 'pacing_type'
         promoted_object = 'promoted_object'
         rf_prediction_id = 'rf_prediction_id'
+        rtb_flag = 'rtb_flag'
         start_time = 'start_time'
         status = 'campaign_status'
         targeting = 'targeting'
         updated_time = 'updated_time'
 
-    class BidType(object):
-        absolute_ocpm = 'ABSOLUTE_OCPM'
-        cpc = 'CPC'
-        cpm = 'CPM'
-        multi_premium = 'MULTI_PREMIUM'
+    class BillingEvent(object):
+        app_installs = 'APP_INSTALLS'
+        clicks = 'CLICKS'
+        impressions = 'IMPRESSIONS'
+        link_clicks = 'LINK_CLICKS'
+        none = 'NONE'
+        offer_claims = 'OFFER_CLAIMS'
+        page_likes = 'PAGE_LIKES'
+        post_engagement = 'POST_ENGAGEMENT'
+
+    class OptimizationGoal(object):
+        app_installs = 'APP_INSTALLS'
+        clicks = 'CLICKS'
+        engaged_users = 'ENGAGED_USERS'
+        event_responses = 'EVENT_RESPONSES'
+        external = 'EXTERNAL'
+        impressions = 'IMPRESSIONS'
+        link_clicks = 'LINK_CLICKS'
+        none = 'NONE'
+        offer_claims = 'OFFER_CLAIMS'
+        offsite_conversions = 'OFFSITE_CONVERSIONS'
+        page_engagement = 'PAGE_ENGAGEMENT'
+        page_likes = 'PAGE_LIKES'
+        post_engagement = 'POST_ENGAGEMENT'
+        reach = 'REACH'
+        social_impressions = 'SOCIAL_IMPRESSIONS'
+        video_views = 'VIDEO_VIEWS'
 
     class PacingType(object):
         day_parting = 'day_parting'
@@ -1217,17 +1375,23 @@ class AdSet(CanValidate, HasStatus, CanArchive, AbstractCrudObject):
         """Returns iterator over AdStat's associated with this set."""
         return self.iterate_edge(AdStats, fields, params)
 
-    def get_insights(self, fields=None, params=None):
-        params = params or {}
-        params['summary'] = params.get('summary')
-        return self.iterate_edge(Insights, fields, params)
+    def get_insights(self, fields=None, params=None, async=False):
+        return self.iterate_edge_async(
+            Insights,
+            fields,
+            params,
+            async,
+            include_summary=False
+        )
 
 
-class AdGroup(HasStatus, HasObjective, CanArchive, AbstractCrudObject):
+class AdGroup(HasStatus, CanArchive, HasAdLabels, AbstractCrudObject):
 
     class Field(HasBidInfo, object):
         account_id = 'account_id'
         adgroup_review_feedback = 'adgroup_review_feedback'
+        adlabels = 'adlabels'
+        bid_amount = 'bid_amount'
         bid_info = 'bid_info'
         campaign_group_id = 'campaign_group_id'
         campaign_id = 'campaign_id'
@@ -1285,10 +1449,14 @@ class AdGroup(HasStatus, HasObjective, CanArchive, AbstractCrudObject):
         """Returns ConversionStats object associated with this ad."""
         return self.edge_object(ConversionStats, fields, params)
 
-    def get_insights(self, fields=None, params=None):
-        params = params or {}
-        params['summary'] = params.get('summary')
-        return self.iterate_edge(Insights, fields, params)
+    def get_insights(self, fields=None, params=None, async=False):
+        return self.iterate_edge_async(
+            Insights,
+            fields,
+            params,
+            async,
+            include_summary=False
+        )
 
 
 class CustomAudiencePixel(AbstractCrudObject):
@@ -1315,12 +1483,78 @@ class AdConversionPixel(AbstractCrudObject):
         return 'offsitepixels'
 
 
-class AdCreative(AbstractCrudObject):
+class AdsPixel(CannotUpdate, CannotDelete, AbstractCrudObject):
+
+    class Field(object):
+        code = 'code'
+        audiences = 'audiences'
+        id = 'id'
+        last_fired_time = 'last_fired_time'
+        name = 'name'
+        owner_ad_account = 'owner_ad_account'
+
+    def share_pixel(self, business_id, account_id):
+        return self.get_api_assured().call(
+            'POST',
+            (self.get_id_assured(), 'shared_accounts'),
+            params={
+                'business': business_id,
+                'account_id': account_id},
+        )
+
+    def share_pixel_agencies(self, business_id, agency_id):
+        return self.get_api_assured().call(
+            'POST',
+            (self.get_id_assured(), 'shared_agencies'),
+            params={
+                'business': business_id,
+                'agency_id': agency_id},
+        )
+
+    def list_ad_accounts(self, business_id):
+        response = self.get_api_assured().call(
+            'GET',
+            (self.get_id_assured(), 'shared_accounts'),
+            params={'business': business_id},
+        ).json()
+
+        ret_val = []
+        if response:
+            keys = response['data']
+            for item in keys:
+                search_obj = AdAccount()
+                search_obj.update(item)
+                ret_val.append(search_obj)
+        return ret_val
+
+    def list_shared_agencies(self):
+        response = self.get_api_assured().call(
+            'GET',
+            (self.get_id_assured(), 'shared_agencies'),
+        ).json()
+
+        ret_val = []
+        if response:
+            keys = response['data']
+            for item in keys:
+                search_obj = Business()
+                search_obj.update(item)
+                ret_val.append(search_obj)
+        return ret_val
+
+    @classmethod
+    def get_endpoint(cls):
+        return 'adspixels'
+
+
+class AdCreative(HasAdLabels, AbstractCrudObject):
 
     class Field(object):
         actor_id = 'actor_id'
         actor_image_hash = 'actor_image_hash'
         actor_name = 'actor_name'
+        adlabels = 'adlabels'
+        applink_treatment = 'applink_treatment'
         body = 'body'
         call_to_action_type = 'call_to_action_type'
         filename = 'filename'
@@ -1341,6 +1575,7 @@ class AdCreative(AbstractCrudObject):
         object_url = 'object_url'
         preview_url = 'preview_url'
         product_set_id = 'product_set_id'
+        template_url = 'template_url'
         thumbnail_url = 'thumbnail_url'
         title = 'title'
         url_tags = 'url_tags'
@@ -1351,8 +1586,10 @@ class AdCreative(AbstractCrudObject):
         return 'adcreatives'
 
     def get_ad_preview(self, fields=None, params=None):
-        """Returns iterator over AdPreview's associated with this creative."""
-        return self.iterate_edge(AdPreview, fields, params)
+        """
+        Returns iterator over AdCreativePreview's associated with this creative.
+        """
+        return self.iterate_edge(AdCreativePreview, fields, params)
 
 
 class AdImage(CannotUpdate, AbstractCrudObject):
@@ -1539,7 +1776,7 @@ class AdVideo(AbstractCrudObject):
         self._set_data(response)
         return response
 
-    def waitUntilEncodingReady(self):
+    def waitUntilEncodingReady(self, interval=30, timeout=600):
         if 'id' not in self:
             raise FacebookError(
                 'Invalid Video ID',
@@ -1547,6 +1784,8 @@ class AdVideo(AbstractCrudObject):
         VideoEncodingStatusChecker.waitUntilReady(
             self.get_api_assured(),
             self['id'],
+            interval,
+            timeout,
         )
 
 
@@ -1557,6 +1796,7 @@ class AdPreview(AbstractObject):
         body = 'body'
         creative = 'creative'
         post = 'post'
+        product_item_ids = 'product_item_ids'
 
     class AdFormat(object):
         desktop_feed_standard = 'DESKTOP_FEED_STANDARD'
@@ -1885,6 +2125,11 @@ class PartnerCategory(
 
 class RateCard(AbstractObject):
 
+    class Field(object):
+        country = "country"
+        currency = "currency"
+        rate = "rate"
+
     @classmethod
     def get_endpoint(cls):
         return 'ratecard'
@@ -2016,6 +2261,7 @@ class TargetingSearch(AbstractObject):
         education = 'adeducationschool'
         employer = 'adworkemployer'
         geolocation = 'adgeolocation'
+        geometadata = 'adgeolocationmeta'
         interest = 'adinterest'
         interest_suggestion = 'adinterestsuggestion'
         interest_validate = 'adinterestvalid'
@@ -2049,10 +2295,21 @@ class TargetingSearch(AbstractObject):
         ).json()
 
         ret_val = []
-        for item in response['data']:
-            search_obj = TargetingSearch()
-            search_obj.update(item)
-            ret_val.append(search_obj)
+        if response:
+            keys = response['data']
+            # The response object can be either a dictionary of dictionaries
+            # or a dictionary of lists.
+            if isinstance(keys, list):
+                for item in keys:
+                    search_obj = TargetingSearch()
+                    search_obj.update(item)
+                    ret_val.append(search_obj)
+            elif isinstance(keys, dict):
+                for item in keys:
+                    search_obj = TargetingSearch()
+                    search_obj.update(keys[item])
+                    if keys[item]:
+                        ret_val.append(search_obj)
         return ret_val
 
 
@@ -2061,9 +2318,11 @@ class TargetingSpecsField(object):
     age_max = 'age_max'
     age_min = 'age_min'
     behaviors = 'behaviors'
+    cities = 'cities'
     college_years = 'college_years'
     conjunctive_user_adclusters = 'conjunctive_user_adclusters'
     connections = 'connections'
+    countries = 'countries'
     custom_audiences = 'custom_audiences'
     dynamic_audience_ids = 'dynamic_audience_ids'
     education_majors = 'education_majors'
@@ -2073,6 +2332,7 @@ class TargetingSpecsField(object):
     excluded_connections = 'excluded_connections'
     excluded_custom_audiences = 'excluded_custom_audiences'
     excluded_geo_locations = 'excluded_geo_locations'
+    excluded_product_audience_specs = 'excluded_product_audience_specs'
     excluded_user_adclusters = 'excluded_user_adclusters'
     friends_of_connections = 'friends_of_connections'
     genders = 'genders'
@@ -2094,6 +2354,8 @@ class TargetingSpecsField(object):
     office_type = 'office_type'
     page_types = 'page_types'
     politics = 'politics'
+    product_audience_specs = 'product_audience_specs'
+    regions = 'regions'
     relationship_statuses = 'relationship_statuses'
     user_adclusters = 'user_adclusters'
     user_device = 'user_device'
@@ -2127,10 +2389,14 @@ class Business(CannotCreate, CannotDelete, AbstractCrudObject):
     def get_product_catalogs(self, fields=None, params=None):
         return self.iterate_edge(ProductCatalog, fields, params)
 
-    def get_insights(self, fields=None, params=None):
-        params = params or {}
-        params['summary'] = params.get('summary')
-        return self.iterate_edge(Insights, fields, params)
+    def get_insights(self, fields=None, params=None, async=False):
+        return self.iterate_edge_async(
+            Insights,
+            fields,
+            params,
+            async,
+            include_summary=False
+        )
 
     def get_client_pages(self, fields=None, params=None):
         return self.iterate_edge(ClientPage, fields, params)
@@ -2227,6 +2493,9 @@ class ProductCatalog(AbstractCrudObject):
     def get_product_feeds(self, fields=None, params=None):
         return self.iterate_edge(ProductFeed, fields, params)
 
+    def get_product_sets(self, fields=None, params=None):
+        return self.iterate_edge(ProductSet, fields, params)
+
     def add_user(self, user, role):
         params = {
             'user': user,
@@ -2274,6 +2543,18 @@ class ProductCatalog(AbstractCrudObject):
             fields,
             params
         )
+
+    def get_products(self, fields=None, params=None):
+        """get products in a product catalog
+
+        Args:
+            fields:
+                list of fields of ProductItem
+            params:
+                filter:
+                    JSON Filter Specification for filter products
+        """
+        return self.iterate_edge(Product, fields, params)
 
     def update_product(self, retailer_id, **kwargs):
         """Updates a product stored in a product catalog
@@ -2452,15 +2733,18 @@ class Product(AbstractCrudObject):
         link = 'link'
         material = 'material'
         mpn = 'mpn'
+        name = 'name'
         pattern = 'pattern'
         price = 'price'
         product_type = 'product_type'
+        retailer_id = 'retailer_id'
         sale_price = 'sale_price'
         sale_price_effective_date = 'sale_price_effective_date'
         shipping = 'shipping'
         shipping_size = 'shipping_size'
         shipping_weight = 'shipping_weight'
         title = 'title'
+        url = 'url'
 
     class Availability(object):
         in_stock = 'IN_STOCK'
@@ -2504,6 +2788,7 @@ class Insights(CannotCreate, CannotDelete, CannotUpdate, AbstractCrudObject):
         adgroup_name = 'adgroup_name'
         async_percent_completion = 'async_percent_completion'
         async_status = 'async_status'
+        call_to_action_clicks = 'call_to_action_clicks'
         campaign_end = 'campaign_end'
         campaign_group_end = 'campaign_group_end'
         campaign_group_id = 'campaign_group_id'
@@ -2562,12 +2847,13 @@ class Insights(CannotCreate, CannotDelete, CannotUpdate, AbstractCrudObject):
         last_28_days = 'last_28_days'
         last_30_days = 'last_30_days'
         last_3_months = 'last_3_months'
-        last_week = 'last_week'
+        last_7_days = 'last_7_days'
         last_90_days = 'last_90_days'
         last_month = 'last_month'
-        last_week = 'this_week'
+        last_week = 'last_week'
         this_month = 'this_month'
         this_quarter = 'this_quarter'
+        this_week = 'this_week'
         today = 'today'
         yesterday = 'yesterday'
 
@@ -2579,6 +2865,10 @@ class Insights(CannotCreate, CannotDelete, CannotUpdate, AbstractCrudObject):
         age = 'age'
         country = 'country'
         gender = 'gender'
+        hourly_stats_aggregated_by_advertiser_time_zone = \
+            'hourly_stats_aggregated_by_advertiser_time_zone'
+        hourly_stats_aggregated_by_audience_time_zone = \
+            'hourly_stats_aggregated_by_audience_time_zone'
         impression_device = 'impression_device'
         placement = 'placement'
 
@@ -2624,3 +2914,68 @@ class Insights(CannotCreate, CannotDelete, CannotUpdate, AbstractCrudObject):
     class ActionReportTime(object):
         conversion = 'conversion'
         impression = 'impression'
+
+
+class AdLabel(AbstractCrudObject):
+
+    class Field(object):
+        id = 'id'
+        name = 'name'
+
+    @classmethod
+    def get_endpoint(cls):
+        return 'adlabels'
+
+
+class AdGroupsByLabels(AbstractObject):
+
+    @classmethod
+    def get_endpoint(cls):
+        return 'adgroupsbylabels'
+
+
+class AdCreativesByLabels(AbstractObject):
+
+    @classmethod
+    def get_endpoint(cls):
+        return 'adcreativesbylabels'
+
+
+class AdCampaignsByLabels(AbstractObject):
+
+    @classmethod
+    def get_endpoint(cls):
+        return 'adcampaignsbylabels'
+
+
+class AdCampaignGroupsByLabels(AbstractObject):
+
+    @classmethod
+    def get_endpoint(cls):
+        return 'adcampaigngroupsbylabels'
+
+
+class AsyncJob(CannotCreate, AbstractCrudObject):
+
+    class Field(object):
+        id = 'id'
+        async_status = 'async_status'
+        async_percent_completion = 'async_percent_completion'
+
+    def __init__(self, target_objects_class):
+        AbstractCrudObject.__init__(self)
+        self.target_objects_class = target_objects_class
+
+    def get_result(self, params=None):
+        """
+        Gets the final result from an async job
+        Accepts params such as limit
+        """
+        return self.iterate_edge(
+            self.target_objects_class,
+            params=params,
+            include_summary=False
+        )
+
+    def __nonzero__(self):
+        return self[self.Field.async_percent_completion] == 100

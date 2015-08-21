@@ -27,11 +27,12 @@ from facebookads.exceptions import (
     FacebookBadObjectError,
 )
 from facebookads.session import FacebookSession
+from facebookads.utils import urls
+from facebookads.utils import version
 import json
 import six
 import collections
 import re
-from six.moves import urllib
 from six.moves import http_client
 
 
@@ -133,8 +134,9 @@ class FacebookAdsApi(object):
             this sdk.
     """
 
-    SDK_VERSION = '2.3.1'
+    SDK_VERSION = version.get_version()
 
+    #API_VERSION = 'v' + str(re.sub('^(\d+\.\d+)\.\d+$', '\g<1>', SDK_VERSION))
     API_VERSION = 'v2.3'
 
     HTTP_METHOD_GET = 'GET'
@@ -170,7 +172,13 @@ class FacebookAdsApi(object):
         return self._num_requests_succeeded
 
     @classmethod
-    def init(cls, app_id, app_secret, access_token, account_id=None):
+    def init(
+        cls,
+        app_id=None,
+        app_secret=None,
+        access_token=None,
+        account_id=None
+    ):
         session = FacebookSession(app_id, app_secret, access_token)
         api = cls(session)
         cls.set_default_api(api)
@@ -216,6 +224,7 @@ class FacebookAdsApi(object):
         params=None,
         headers=None,
         files=None,
+        url_override=None,
         api_version=None,
     ):
         """Makes an API call.
@@ -260,7 +269,7 @@ class FacebookAdsApi(object):
         if not isinstance(path, six.string_types):
             # Path is not a full path
             path = "/".join((
-                self._session.GRAPH,
+                self._session.GRAPH or url_override,
                 api_version or self.API_VERSION,
                 '/'.join(map(str, path)),
             ))

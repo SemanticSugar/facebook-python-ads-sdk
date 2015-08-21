@@ -44,8 +44,8 @@ class FacebookAdsTestCase(unittest.TestCase):
     TEST_API = None
     TEST_ACCOUNT = None
     TEST_ID = str(int(time.time()) % 1000)
-    TEST_IMAGE_PATH = os.path.join(os.path.dirname(__file__), 'test.png')
-    TEST_ZIP_PATH = os.path.join(os.path.dirname(__file__), 'test.zip')
+    TEST_IMAGE_PATH = os.path.join(os.path.dirname(__file__), 'misc/image.png')
+    TEST_ZIP_PATH = os.path.join(os.path.dirname(__file__), 'misc/images.zip')
 
     def setUp(self):
         super(FacebookAdsTestCase, self).setUp()
@@ -182,6 +182,14 @@ class FacebookAdsTestCase(unittest.TestCase):
         img.remote_create()
         return img
 
+    def new_test_ad_label(self):
+        label = objects.AdLabel(
+            parent_id=self.TEST_ACCOUNT.get_id_assured(),
+        )
+        label[objects.AdLabel.Field.name] = 'Test Label'
+        label.remote_create()
+        self.delete_in_teardown(label)
+        return label
 
 class AbstractObjectTestCase(FacebookAdsTestCase):
     pass
@@ -633,6 +641,40 @@ class InsightsTestCase(AbstractCrudObjectTestCase):
         ], params={
             'level': objects.Insights.Level.adgroup,
         })
+
+
+class ReachEstimateTestCase(AbstractCrudObjectTestCase):
+    def test_can_read_reach_estimate_from_ad_group(self):
+        self.campaign = self.new_test_ad_campaign()
+        self.campaign.remote_create()
+
+        self.ad_set = self.new_test_ad_set(self.campaign)
+        self.ad_set.remote_create()
+
+        self.ad_group = self.new_test_ad_group(self.ad_set)
+        self.ad_group.remote_create()
+
+        self.reach_estimate = self.ad_group.get_reach_estimate()
+
+
+class AdLabelTestCase(AbstractCrudObjectTestCase):
+    """
+        Create a new ad set object and test adding and removing labels
+    """
+    def runTest(self):
+        label = self.new_test_ad_label()
+        adlabels = [label.get_id()]
+        ad_set = self.new_test_ad_set()
+
+        try:
+            ad_set.add_labels(adlabels)
+        except:
+            self.fail("Could not add ad labels")
+
+        try:
+            ad_set.remove_labels(adlabels)
+        except:
+            self.fail("Could not remove ad labels")
 
 
 class BatchTestCase(FacebookAdsTestCase):
