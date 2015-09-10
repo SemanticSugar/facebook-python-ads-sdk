@@ -391,10 +391,7 @@ class FacebookAdsApiBatch(object):
 
         if params:
             params = _top_level_param_json_encode(params)
-            def enc(value):
-                if value is None: return ''
-                return urllib.parse.quote(value.encode('utf-8'))
-            keyvals = ['%s=%s' % (key, enc(value))
+            keyvals = ['%s=%s' % (key, urls.quote_with_encoding(value))
                        for key, value in params.items()]
             call['body'] = '&'.join(keyvals)
 
