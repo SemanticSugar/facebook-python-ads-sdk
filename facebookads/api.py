@@ -33,7 +33,7 @@ import json
 import six
 import collections
 import re
-from six.moves import urllib, http_client
+from six.moves import http_client
 
 
 class FacebookResponse(object):
