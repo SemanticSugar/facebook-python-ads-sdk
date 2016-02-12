@@ -18,34 +18,11 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
-from __future__ import print_function
-from __future__ import unicode_literals
 
-'''
-    This is a template for DocSmith samples in Python. This file will throw an
-    exception. This is used to test facebookads/docs_runner/doc_runner.py
-    when something breaks
-'''
+class ExitCodesEnum:
+    EXTERNAL_ERROR = 41
+    FAILURE = 1
+    SUCCESS = 0
+    USER_ERROR = 40
+    USER_SKIP = 42
 
-import sys
-import os
-
-this_dir = os.path.dirname(__file__)
-repo_dir = os.path.join(this_dir, os.pardir, os.pardir)
-sys.path.insert(1, repo_dir)
-
-from facebookads import bootstrap
-bootstrap.auth()
-
-'''
-    Example tha intentionally throws an exception to be used as a test for
-    DocExampleTest
-'''
-from facebookads.objects import AdAccount
-
-if __name__ == '__main__':
-    ad_account_id = 'invalid_id_1111'
-    print('**** READ AD ACCOUNT ****')
-    ad_account = AdAccount(fbid=ad_account_id)
-    ad_account.remote_read()
-    print(ad_account.remote_read())
