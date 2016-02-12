@@ -1,3 +1,4 @@
+## This version is specific for cats4gold. DO NOT MERGE into the forked version.
 # Marketing API SDK for Python
 
 [![Build Status](https://travis-ci.org/facebook/facebook-python-ads-sdk.svg)](https://travis-ci.org/facebook/facebook-python-ads-sdk)
