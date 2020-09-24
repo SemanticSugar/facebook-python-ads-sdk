@@ -1,4 +1,6 @@
-requests >= 2.3.0
+requirements.txtrequests >= 2.3.0
 six >= 1.7.3
 curlify >= 2.1.0
 pycountry >= 1.10
+mock >= 1.0.1
+enum34; python_version < '3.4'

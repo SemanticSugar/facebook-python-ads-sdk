@@ -57,7 +57,9 @@ class ProductFeed(
         schedule = 'schedule'
         update_schedule = 'update_schedule'
         feed_type = 'feed_type'
+        override_value = 'override_value'
         rules = 'rules'
+        whitelisted_properties = 'whitelisted_properties'
 
     class Delimiter:
         autodetect = 'AUTODETECT'
@@ -91,7 +93,9 @@ class ProductFeed(
         local_inventory = 'LOCAL_INVENTORY'
         market = 'MARKET'
         media_title = 'MEDIA_TITLE'
+        offer = 'OFFER'
         products = 'PRODUCTS'
+        transactable_items = 'TRANSACTABLE_ITEMS'
         vehicles = 'VEHICLES'
         vehicle_offer = 'VEHICLE_OFFER'
 
@@ -690,7 +694,9 @@ class ProductFeed(
         'schedule': 'ProductFeedSchedule',
         'update_schedule': 'ProductFeedSchedule',
         'feed_type': 'FeedType',
+        'override_value': 'string',
         'rules': 'list<string>',
+        'whitelisted_properties': 'list<string>',
     }
     @classmethod
     def _get_field_enum_info(cls):

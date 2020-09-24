@@ -28,24 +28,20 @@ github and we'll fix in our codegen framework. We'll not be able to accept
 pull request for this class.
 """
 
-class CustomAudiencePrefillState(
+class TargetingRelaxation(
     AbstractObject,
 ):
 
     def __init__(self, api=None):
-        super(CustomAudiencePrefillState, self).__init__()
-        self._isCustomAudiencePrefillState = True
+        super(TargetingRelaxation, self).__init__()
+        self._isTargetingRelaxation = True
         self._api = api
 
     class Field(AbstractObject.Field):
-        description = 'description'
-        num_added = 'num_added'
-        status = 'status'
+        lookalike = 'lookalike'
 
     _field_types = {
-        'description': 'string',
-        'num_added': 'unsigned int',
-        'status': 'string',
+        'lookalike': 'unsigned int',
     }
     @classmethod
     def _get_field_enum_info(cls):
